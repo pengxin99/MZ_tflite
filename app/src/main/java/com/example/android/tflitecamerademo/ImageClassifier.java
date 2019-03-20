@@ -44,7 +44,7 @@ public class ImageClassifier {
   private static final String TAG = "TfLiteCameraDemo";
 
   /** Name of the model file stored in Assets. */
-  private static final String MODEL_PATH = "new_mz.lite";
+  private static final String MODEL_PATH = "optimized_graph.lite";
 
   /** Name of the label file stored in Assets. */
   private static final String LABEL_PATH = "new_mz.txt";
@@ -131,6 +131,10 @@ public class ImageClassifier {
 
   ArrayList<String> classifyFrame(Bitmap bitmap) {
     ArrayList<String> textToShow_list = new ArrayList<>();
+    char [] res_labels = new char[9];
+    int index = 0;
+    int total_time = 0;
+
     if (tflite == null) {
       Log.e(TAG, "Image classifier has not been initialized; Skipped.");
 //      return "Uninitialized Classifier.";
@@ -144,17 +148,61 @@ public class ImageClassifier {
       tflite.run(imgData, labelProbArray);
       long endTime = SystemClock.uptimeMillis();
       Log.d(TAG, "Timecost to run model inference: " + Long.toString(endTime - startTime));
+      total_time += endTime - startTime;
+
       // smooth the results
-      applyFilter();
+//      applyFilter();
 
       // print the results
-      String textToShow = printTopKLabels();
+      ArrayList<String> textToShow_and_labes = printTopKLabels();
 //      textToShow = Long.toString(endTime - startTime) + "ms" + textToShow;
-      textToShow_list.add(textToShow);
+      textToShow_list.add(textToShow_and_labes.get(0));
+      res_labels[index++] = textToShow_and_labes.get(1).charAt(0);
     }
+//    way_from_labes(res_labels);
+    textToShow_list.add(way_from_labes(res_labels));  // textToShow_list[9]
+    textToShow_list.add(String.valueOf(total_time));  // textToShow_list[10]
 
     return textToShow_list;
   }
+    private String way_from_labes(char[] resLabels){
+      if (resLabels[0] == ' ')
+          return null;
+      else{
+          int left = label_to_int(resLabels[0]) + label_to_int(resLabels[1]) + label_to_int(resLabels[2]);
+          int midel = label_to_int(resLabels[3]) + label_to_int(resLabels[4]) + label_to_int(resLabels[5]);
+          int right = label_to_int(resLabels[6]) + label_to_int(resLabels[7]) + label_to_int(resLabels[8]);
+
+          if (left + midel + right <= 10)
+              return "Nothing detect, please goto pave first!";
+          else if (left + midel + right >= 300 )
+              return "Point area, need to turn a corner please mind!";
+          else if(left >= 10 && right < 5)
+              return "please go left a little to be straight~~";
+          else if (right >= 10 && left < 5)
+              return "please go right a little to be straight~~";
+          else if (midel >= 10)
+              return "straight way please keep straight";
+          else
+              return "WHAT ??";
+      }
+    }
+    private int label_to_int(char label){
+      int ret = -1;
+      switch (label){
+          case 'N':
+              ret = 0;
+              break;
+          case 'D':
+              ret = 5;
+              break;
+          case 'S':
+              ret = 100;
+              break;
+          default: break;
+      }
+        return ret;
+    }
 
   void applyFilter(){
     int num_labels =  labelList.size();
@@ -233,7 +281,7 @@ public class ImageClassifier {
   }
 
   /** Prints top-K labels, to be shown in UI as the results. */
-  private String printTopKLabels() {
+  private ArrayList<String> printTopKLabels() {
     sortedLabels.clear();
     for (int i = 0; i < labelList.size(); ++i) {
       sortedLabels.add(
@@ -243,12 +291,18 @@ public class ImageClassifier {
       }
     }
     String textToShow = "";
+    String res_label = "";
+    ArrayList<String> text_and_label = new ArrayList<>();
     final int size = sortedLabels.size();
     for (int i = 0; i < size; ++i) {
       Map.Entry<String, Float> label = sortedLabels.poll();
       textToShow = String.format("%s: %4.2f",label.getKey(),label.getValue()) + textToShow;
+      res_label = label.getKey();
     }
-    return textToShow;
+    text_and_label.add(textToShow);
+    text_and_label.add(res_label);
+//    return textToShow;
+    return text_and_label;
   }
 
   public static ArrayList<Bitmap> getNinePic(Bitmap bitmap) {

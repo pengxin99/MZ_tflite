@@ -41,7 +41,10 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.media.AudioAttributes;
+import android.media.AudioManager;
 import android.media.ImageReader;
+import android.media.SoundPool;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -67,9 +70,10 @@ import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
+
 /** Basic fragments for the Camera. */
 public class Camera2BasicFragment extends Fragment
-    implements FragmentCompat.OnRequestPermissionsResultCallback {
+    implements FragmentCompat.OnRequestPermissionsResultCallback{
 
   /** Tag for the {@link Log}. */
   private static final String TAG = "TfLiteCameraDemo";
@@ -85,6 +89,14 @@ public class Camera2BasicFragment extends Fragment
   private boolean checkedPermissions = false;
   private TextView textView;
   private ImageClassifier classifier;
+
+  ////////////////////// volum ///////
+  private SoundPool mSoundPool;
+  private final int DEFAULT_INVALID_SOUND_ID = -Integer.MAX_VALUE;
+  private int mSoundId = DEFAULT_INVALID_SOUND_ID;
+  ////////////////////// volum ///////
+
+
 
   /** Max preview width that is guaranteed by Camera2 API */
   private static final int MAX_PREVIEW_WIDTH = 1920;
@@ -224,7 +236,10 @@ public class Camera2BasicFragment extends Fragment
   private void showToast(final ArrayList<String> textToShow_list) {
     String text = textToShow_list.get(0) + "\t\t" + textToShow_list.get(3) + "\t\t" + textToShow_list.get(6) + '\n'
                 + textToShow_list.get(1) + "\t\t" + textToShow_list.get(4) + "\t\t" + textToShow_list.get(7) + '\n'
-                + textToShow_list.get(2) + "\t\t" + textToShow_list.get(5) + "\t\t" + textToShow_list.get(8) + '\n';
+                + textToShow_list.get(2) + "\t\t" + textToShow_list.get(5) + "\t\t" + textToShow_list.get(8) + '\n'
+                + "Total time is :" + textToShow_list.get(10) + "\n"
+                + textToShow_list.get(9);
+
     Log.i("Result of nine pic", text);
     final Activity activity = getActivity();
     if (activity != null) {
@@ -596,6 +611,7 @@ public class Camera2BasicFragment extends Fragment
         }
       };
 
+
   /** Creates a new {@link CameraCaptureSession} for camera preview. */
   private void createCameraPreviewSession() {
     try {
@@ -707,6 +723,9 @@ public class Camera2BasicFragment extends Fragment
     ArrayList<String> textToShow_list = classifier.classifyFrame(bitmap);
     bitmap.recycle();
     showToast(textToShow_list);
+    ///////////// volume //////
+    playClassifierVolume();
+
   }
 
   // 构建Runnable对象，并在runnable中更新UI
@@ -770,4 +789,48 @@ public class Camera2BasicFragment extends Fragment
           .create();
     }
   }
+
+
+  /////// for volume //////////
+  private void playClassifierVolume(){
+    String volum_path = "raw/autotest.mp3";
+    paly(volum_path);
+  }
+
+  /**
+   * 创建SoundPool
+   */
+  public void createSoundPoolIfNeeded() {
+    if (mSoundPool == null) {
+      // 5.0 及 之后
+      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+        AudioAttributes audioAttributes = null;
+        audioAttributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build();
+
+        mSoundPool = new SoundPool.Builder()
+                .setMaxStreams(16)
+                .setAudioAttributes(audioAttributes)
+                .build();
+      } else { // 5.0 以前
+        mSoundPool = new SoundPool(16, AudioManager.STREAM_MUSIC, 0);  // 创建SoundPool
+      }
+    }
+
+  }
+
+  public void paly(String volume_path){
+    createSoundPoolIfNeeded();
+    mSoundId = mSoundPool.load(volume_path, 1);
+      mSoundPool.setOnLoadCompleteListener(new SoundPool.OnLoadCompleteListener() {
+          @Override
+          public void onLoadComplete(SoundPool soundPool, int sampleId, int status) {
+              mSoundPool.play(mSoundId, 1, 1, 0, 0, 1);
+              Toast.makeText(null,"加特技准备完毕~", Toast.LENGTH_SHORT).show();
+          }
+      });
+  }
+
 }
