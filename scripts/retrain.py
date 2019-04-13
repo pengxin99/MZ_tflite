@@ -719,7 +719,7 @@ def add_input_distortions(flip_left_right, random_crop, random_scale,
   return jpeg_data, distort_result
 
 
-def variable_summaries(e):
+def variable_summaries(var):
   """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
   with tf.name_scope('summaries'):
     mean = tf.reduce_mean(var)
