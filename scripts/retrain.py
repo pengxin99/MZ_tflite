@@ -148,7 +148,7 @@ def create_image_lists(image_dir, testing_percentage, validation_percentage):
   sub_dirs = sorted(item for item in sub_dirs
                     if gfile.IsDirectory(item))
   for sub_dir in sub_dirs:
-    extensions = ['jpg', 'jpeg', 'JPG', 'JPEG']
+    extensions = ['jpg', 'jpeg', 'JPG', 'JPEG', 'png']
     file_list = []
     dir_name = os.path.basename(sub_dir)
     if dir_name == image_dir:
@@ -719,7 +719,7 @@ def add_input_distortions(flip_left_right, random_crop, random_scale,
   return jpeg_data, distort_result
 
 
-def variable_summaries(var):
+def variable_summaries(e):
   """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
   with tf.name_scope('summaries'):
     mean = tf.reduce_mean(var)
@@ -768,16 +768,30 @@ def add_final_training_ops(class_count, final_tensor_name, bottleneck_tensor,
   # to see in TensorBoard
   layer_name = 'final_training_ops'
   with tf.name_scope(layer_name):
+
+    # # dropout
+    # with tf.name_scope('drop'):
+    #   bottleneck_input = tf.nn.dropout(bottleneck_input, keep_prob=0.9)
+
+    # weights
     with tf.name_scope('weights'):
       initial_value = tf.truncated_normal(
           [bottleneck_tensor_size, class_count], stddev=0.001)
-
       layer_weights = tf.Variable(initial_value, name='final_weights')
 
+      ##  add for L2 regulation
+      tf.add_to_collection(tf.GraphKeys.WEIGHTS, layer_weights)
+      regularizer = tf.contrib.layers.l2_regularizer(scale = 100 / 5000)  # 这里需要和你输入的样品数成正比
+      reg_term = tf.contrib.layers.apply_regularization(regularizer)
+      ##
       variable_summaries(layer_weights)
+
+    # biases
     with tf.name_scope('biases'):
       layer_biases = tf.Variable(tf.zeros([class_count]), name='final_biases')
       variable_summaries(layer_biases)
+
+    # fc forward
     with tf.name_scope('Wx_plus_b'):
       logits = tf.matmul(bottleneck_input, layer_weights) + layer_biases
       tf.summary.histogram('pre_activations', logits)
@@ -789,7 +803,8 @@ def add_final_training_ops(class_count, final_tensor_name, bottleneck_tensor,
     cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
         labels=ground_truth_input, logits=logits)
     with tf.name_scope('total'):
-      cross_entropy_mean = tf.reduce_mean(cross_entropy)
+      ## add L2 regulation
+      cross_entropy_mean = tf.reduce_mean(cross_entropy) + reg_term
   tf.summary.scalar('cross_entropy', cross_entropy_mean)
 
   with tf.name_scope('train'):
@@ -798,6 +813,24 @@ def add_final_training_ops(class_count, final_tensor_name, bottleneck_tensor,
 
   return (train_step, cross_entropy_mean, bottleneck_input, ground_truth_input,
           final_tensor)
+
+def confusion_matrix(predicted, true_label):
+  """
+
+  :param predicted:
+  :param true_label:
+  :return:
+  """
+  TP = tf.count_nonzero(predicted * true_label)
+  TN = tf.count_nonzero((predicted - 1) * (true_label - 1))
+  FP = tf.count_nonzero(predicted * (true_label - 1))
+  FN = tf.count_nonzero((predicted - 1) * true_label)
+
+  precision = TP / (TP + FP)
+  recall = TP / (TP + FN)
+  F1 = 2 * precision * recall / (precision + recall)
+
+  return precision, recall, F1
 
 
 def add_evaluation_step(result_tensor, ground_truth_tensor):
@@ -811,6 +844,10 @@ def add_evaluation_step(result_tensor, ground_truth_tensor):
   Returns:
     Tuple of (evaluation step, prediction).
   """
+
+  ## add by ypx to compute confusion matrix
+  acc, recall, F1 = confusion_matrix(result_tensor, ground_truth_tensor)
+  ##
   with tf.name_scope('accuracy'):
     with tf.name_scope('correct_prediction'):
       prediction = tf.argmax(result_tensor, 1)
@@ -819,7 +856,8 @@ def add_evaluation_step(result_tensor, ground_truth_tensor):
     with tf.name_scope('accuracy'):
       evaluation_step = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
   tf.summary.scalar('accuracy', evaluation_step)
-  return evaluation_step, prediction
+
+  return evaluation_step, prediction, F1
 
 
 def save_graph_to_file(sess, graph, graph_file_name):
@@ -968,7 +1006,6 @@ def main(_):
   # Needed to make sure the logging output is visible.
   # See https://github.com/tensorflow/tensorflow/issues/3047
   tf.logging.set_verbosity(tf.logging.INFO)
-
   # Prepare necessary directories  that can be used during training
   prepare_file_system()
 
@@ -1031,7 +1068,7 @@ def main(_):
          model_info['bottleneck_tensor_size'])
 
     # Create the operations we need to evaluate the accuracy of our new layer.
-    evaluation_step, prediction = add_evaluation_step(
+    evaluation_step, prediction, f1 = add_evaluation_step(
         final_tensor, ground_truth_input)
 
     # Merge all the summaries and write them out to the summaries_dir
@@ -1074,14 +1111,16 @@ def main(_):
       # Every so often, print out how well the graph is training.
       is_last_step = (i + 1 == FLAGS.how_many_training_steps)
       if (i % FLAGS.eval_step_interval) == 0 or is_last_step:
-        train_accuracy, cross_entropy_value = sess.run(
-            [evaluation_step, cross_entropy],
+        train_accuracy, cross_entropy_value, train_f1 = sess.run(
+            [evaluation_step, cross_entropy, f1],
             feed_dict={bottleneck_input: train_bottlenecks,
                        ground_truth_input: train_ground_truth})
         tf.logging.info('%s: Step %d: Train accuracy = %.1f%%' %
                         (datetime.now(), i, train_accuracy * 100))
         tf.logging.info('%s: Step %d: Cross entropy = %f' %
                         (datetime.now(), i, cross_entropy_value))
+        tf.logging.info('%s: Step %d: train f1 = %f' %
+                        (datetime.now(), i, train_f1))
         validation_bottlenecks, validation_ground_truth, _ = (
             get_random_cached_bottlenecks(
                 sess, image_lists, FLAGS.validation_batch_size, 'validation',
@@ -1090,13 +1129,17 @@ def main(_):
                 FLAGS.architecture))
         # Run a validation step and capture training summaries for TensorBoard
         # with the `merged` op.
-        validation_summary, validation_accuracy = sess.run(
-            [merged, evaluation_step],
+        validation_summary, validation_accuracy, validation_f1 = sess.run(
+            [merged, evaluation_step, f1],
             feed_dict={bottleneck_input: validation_bottlenecks,
                        ground_truth_input: validation_ground_truth})
         validation_writer.add_summary(validation_summary, i)
         tf.logging.info('%s: Step %d: Validation accuracy = %.1f%% (N=%d)' %
                         (datetime.now(), i, validation_accuracy * 100,
+                         len(validation_bottlenecks)))
+        # add by ypx to f1 score
+        tf.logging.info('%s: Step %d: Validation f1 = %.1f%% (N=%d)' %
+                        (datetime.now(), i, validation_f1 * 100,
                          len(validation_bottlenecks)))
 
       # Store intermediate results
@@ -1196,7 +1239,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--testing_percentage',
       type=int,
-      default=10,
+      default=20,
       help='What percentage of images to use as a test set.'
   )
   parser.add_argument(
@@ -1220,7 +1263,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--test_batch_size',
       type=int,
-      default=-1,
+      default=10,
       help="""\
       How many images to test on. This test set is only used once, to evaluate
       the final accuracy of the model after training completes.
@@ -1231,7 +1274,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--validation_batch_size',
       type=int,
-      default=100,
+      default=64,
       help="""\
       How many images to use in an evaluation batch. This validation set is
       used much more often than the test set, and is an early indicator of how

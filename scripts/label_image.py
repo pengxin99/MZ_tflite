@@ -88,8 +88,15 @@ if __name__ == "__main__":
   parser.add_argument("--input_std", type=int, help="input std")
   parser.add_argument("--input_layer", help="name of input layer")
   parser.add_argument("--output_layer", help="name of output layer")
+  ## add by ypx
+  parser.add_argument("--except_type", help="the except type of imgs")
+  ##
+
   args = parser.parse_args()
 
+  ##
+  except_type = args.except_type
+  ##
   if args.graph:
     model_file = args.graph
   if args.image:
@@ -131,7 +138,16 @@ if __name__ == "__main__":
   top_k = results.argsort()[-5:][::-1]
   labels = load_labels(label_file)
 
-  print('\nEvaluation time (1-image): {:.3f}s\n'.format(end-start))
+  # print('\nEvaluation time (1-image): {:.3f}s\n'.format(end-start))
   template = "{} (score={:0.5f})"
+  # for i in top_k:
+  #   print(template.format(labels[i], results[i]))
+  count = 0
   for i in top_k:
-    print(template.format(labels[i], results[i]))
+    while(count<1):
+      if(except_type == labels[i]):
+        pass
+      else:
+        print(template.format(labels[i], results[i]))
+        print('************************')
+      count += 1
